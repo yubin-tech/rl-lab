@@ -36,7 +36,9 @@ const App: React.FC = () => {
   const [isConverged, setIsConverged] = useState(false);
   const policyStableRef = useRef(false);
   const qDeltaEmaRef = useRef<number | null>(null);
+  const qStableStepsRef = useRef(0);
   const Q_EMA_ALPHA = 0.1;
+  const Q_STABLE_STEPS = 50;
   
   // Q-Learning Agent State
   const [agentPos, setAgentPos] = useState<{ x: number; y: number } | null>(null);
@@ -77,6 +79,7 @@ const App: React.FC = () => {
     setIsConverged(false);
     policyStableRef.current = false;
     qDeltaEmaRef.current = null;
+    qStableStepsRef.current = 0;
     setAgentPos(start);
   }, [params.livingReward, params.goalReward, params.trapReward]);
 
@@ -96,6 +99,7 @@ const App: React.FC = () => {
     setIsConverged(false);
     policyStableRef.current = false;
     qDeltaEmaRef.current = null;
+    qStableStepsRef.current = 0;
     
     // Find start for agent
     for (let y = 0; y < DEFAULT_ROWS; y++) {
@@ -232,7 +236,9 @@ const App: React.FC = () => {
         ? qDelta
         : qDeltaEmaRef.current * (1 - Q_EMA_ALPHA) + qDelta * Q_EMA_ALPHA;
       const epsilonAtMin = params.epsilon <= params.epsilonMin + 1e-6;
-      if (epsilonAtMin && qDeltaEmaRef.current < params.threshold) {
+      const qDeltaStable = qDeltaEmaRef.current < params.threshold;
+      qStableStepsRef.current = qDeltaStable ? qStableStepsRef.current + 1 : 0;
+      if ((epsilonAtMin && qDeltaStable) || qStableStepsRef.current >= Q_STABLE_STEPS) {
         setIsRunning(false);
         setIsConverged(true);
       }
