@@ -9,14 +9,16 @@ This app is designed to be deployed to static hosting providers.
 
 ### 1. Cloudflare Pages (Recommended)
 1. Push your code to a GitHub repository.
-2. Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com/).
+2. Log in to the Cloudflare Dashboard.
 3. Navigate to **Workers & Pages** > **Create application** > **Pages** > **Connect to Git**.
 4. Select your repository.
 5. Use the following build settings:
-   - **Framework preset**: None
-   - **Build command**: `npm install && npm run build` (or leave empty if using a pre-transpiled version)
-   - **Build output directory**: `dist` (if using Vite) or the root directory if serving files directly via ESM.
-6. Click **Save and Deploy**.
+   - **Framework preset**: React (Vite) or None (manual)
+   - **Build command**: `npm run build`
+   - **Build output directory**: `dist`
+   - **Root directory**: `/`
+6. Pin Node by committing `.nvmrc` (this repo uses Node 22).
+7. Click **Save and Deploy**.
 
 ### 2. GitHub Pages
 1. Go to your repository **Settings** > **Pages**.
@@ -28,7 +30,6 @@ This app is designed to be deployed to static hosting providers.
 - **Lucide React** (Icons)
 - **Recharts** (Convergence visualization)
 - **Tailwind CSS** (Styling)
-- **ESM.sh** (Cloud-delivered modules)
 
 ## 💡 Key Features
 - **Algorithm Lab**: Toggle between Value Iteration, Policy Iteration, and Q-Learning.
