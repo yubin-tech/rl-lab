@@ -23,8 +23,10 @@ const App: React.FC = () => {
     goalReward: 10,
     trapReward: -10,
     threshold: 0.001,
-    alpha: 0.1,
-    epsilon: 0.2
+    alpha: 0.2,
+    epsilon: 0.6,
+    epsilonMin: 0.01,
+    epsilonDecay: 0.98
   });
   
   // Simulation Control
@@ -32,6 +34,9 @@ const App: React.FC = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [isConverged, setIsConverged] = useState(false);
+  const policyStableRef = useRef(false);
+  const qDeltaEmaRef = useRef<number | null>(null);
+  const Q_EMA_ALPHA = 0.1;
   
   // Q-Learning Agent State
   const [agentPos, setAgentPos] = useState<{ x: number; y: number } | null>(null);
@@ -70,6 +75,8 @@ const App: React.FC = () => {
     setSelectedCell(null);
     setIsRunning(false);
     setIsConverged(false);
+    policyStableRef.current = false;
+    qDeltaEmaRef.current = null;
     setAgentPos(start);
   }, [params.livingReward, params.goalReward, params.trapReward]);
 
@@ -87,6 +94,8 @@ const App: React.FC = () => {
     setHistory([]);
     setIsRunning(false);
     setIsConverged(false);
+    policyStableRef.current = false;
+    qDeltaEmaRef.current = null;
     
     // Find start for agent
     for (let y = 0; y < DEFAULT_ROWS; y++) {
@@ -140,7 +149,23 @@ const App: React.FC = () => {
     setGrid(prevGrid => {
       const nextGrid = JSON.parse(JSON.stringify(prevGrid)) as Cell[][];
       let maxDelta = 0;
+      let policyChanged = false;
       const isImprovementStep = iteration % 5 === 0;
+
+      const getExpectedValue = (cell: Cell, x: number, y: number, intendedAction: Action) => {
+        const noiseActions = (intendedAction === Action.UP || intendedAction === Action.DOWN) ? [Action.LEFT, Action.RIGHT] : [Action.UP, Action.DOWN];
+        const actions = [intendedAction, ...noiseActions];
+        const probs = [1 - params.noise * 2, params.noise, params.noise];
+        let expectedValue = 0;
+
+        for (let i = 0; i < actions.length; i++) {
+          const vec = ACTION_VECTORS[actions[i]];
+          const nx = x + vec.dx; const ny = y + vec.dy;
+          const target = (nx >= 0 && nx < DEFAULT_COLS && ny >= 0 && ny < DEFAULT_ROWS && prevGrid[ny][nx].type !== 'WALL') ? prevGrid[ny][nx] : cell;
+          expectedValue += probs[i] * (cell.reward + params.gamma * target.value);
+        }
+        return expectedValue;
+      };
 
       for (let y = 0; y < DEFAULT_ROWS; y++) {
         for (let x = 0; x < DEFAULT_COLS; x++) {
@@ -148,30 +173,28 @@ const App: React.FC = () => {
           if (cell.type === 'GOAL' || cell.type === 'TRAP' || cell.type === 'WALL') continue;
 
           if (isImprovementStep || !cell.policy) {
-            const actionValues = Object.values(Action).map(a => {
-              const vec = ACTION_VECTORS[a];
-              const nx = x + vec.dx; const ny = y + vec.dy;
-              const target = (nx >= 0 && nx < DEFAULT_COLS && ny >= 0 && ny < DEFAULT_ROWS && prevGrid[ny][nx].type !== 'WALL') ? prevGrid[ny][nx] : cell;
-              return cell.reward + params.gamma * target.value;
-            });
+            const actionValues = Object.values(Action).map(a => getExpectedValue(cell, x, y, a));
             const bestAction = Object.values(Action)[actionValues.indexOf(Math.max(...actionValues))];
+            if (cell.policy !== bestAction) policyChanged = true;
             nextGrid[y][x].policy = bestAction;
           } else {
             const a = cell.policy;
-            const vec = ACTION_VECTORS[a];
-            const nx = x + vec.dx; const ny = y + vec.dy;
-            const target = (nx >= 0 && nx < DEFAULT_COLS && ny >= 0 && ny < DEFAULT_ROWS && prevGrid[ny][nx].type !== 'WALL') ? prevGrid[ny][nx] : cell;
-            const newValue = cell.reward + params.gamma * target.value;
+            const newValue = getExpectedValue(cell, x, y, a);
             maxDelta = Math.max(maxDelta, Math.abs(newValue - cell.value));
             nextGrid[y][x].value = newValue;
           }
         }
       }
+      if (isImprovementStep) policyStableRef.current = !policyChanged;
       setHistory(h => [...h.slice(-49), { iteration: iteration + 1, maxDelta }]);
+      if (!isImprovementStep && policyStableRef.current && maxDelta < params.threshold) {
+        setIsRunning(false);
+        setIsConverged(true);
+      }
       return nextGrid;
     });
     setIteration(i => i + 1);
-  }, [grid, params, iteration]);
+  }, [params, iteration]);
 
   const performQLearningStep = useCallback(() => {
     if (!agentPos) return;
@@ -185,7 +208,10 @@ const App: React.FC = () => {
       const q = cell.qValues!;
       action = Object.values(Action).reduce((a, b) => q[a] > q[b] ? a : b);
     }
-    const vec = ACTION_VECTORS[action];
+    const noiseActions = (action === Action.UP || action === Action.DOWN) ? [Action.LEFT, Action.RIGHT] : [Action.UP, Action.DOWN];
+    const roll = Math.random();
+    const actualAction = roll < params.noise ? noiseActions[0] : roll < params.noise * 2 ? noiseActions[1] : action;
+    const vec = ACTION_VECTORS[actualAction];
     let nx = x + vec.dx; let ny = y + vec.dy;
     if (nx < 0 || nx >= DEFAULT_COLS || ny < 0 || ny >= DEFAULT_ROWS || grid[ny][nx].type === 'WALL') {
       nx = x; ny = y;
@@ -197,10 +223,26 @@ const App: React.FC = () => {
       const currentQ = newGrid[y][x].qValues![action];
       const maxNextQ = Math.max(...Object.values(newGrid[ny][nx].qValues!));
       const newQ = currentQ + params.alpha * (reward + params.gamma * maxNextQ - currentQ);
+      const qDelta = Math.abs(newQ - currentQ);
       newGrid[y][x].qValues![action] = newQ;
       newGrid[y][x].value = Math.max(...Object.values(newGrid[y][x].qValues!));
       newGrid[y][x].policy = Object.values(Action).reduce((a, b) => newGrid[y][x].qValues![a] > newGrid[y][x].qValues![b] ? a : b);
+      setHistory(h => [...h.slice(-49), { iteration: iteration + 1, maxDelta: qDelta }]);
+      qDeltaEmaRef.current = qDeltaEmaRef.current === null
+        ? qDelta
+        : qDeltaEmaRef.current * (1 - Q_EMA_ALPHA) + qDelta * Q_EMA_ALPHA;
+      const epsilonAtMin = params.epsilon <= params.epsilonMin + 1e-6;
+      if (epsilonAtMin && qDeltaEmaRef.current < params.threshold) {
+        setIsRunning(false);
+        setIsConverged(true);
+      }
       return newGrid;
+    });
+    setParams(prev => {
+      if (prev.epsilonDecay >= 1 || prev.epsilon <= prev.epsilonMin) return prev;
+      const nextEpsilon = Math.max(prev.epsilonMin, prev.epsilon * prev.epsilonDecay);
+      if (nextEpsilon === prev.epsilon) return prev;
+      return { ...prev, epsilon: nextEpsilon };
     });
     if (nextCell.type === 'GOAL' || nextCell.type === 'TRAP') {
       let start = { x: 0, y: 0 };
@@ -270,17 +312,22 @@ const App: React.FC = () => {
                  </div>
                ))}
                
-               {activeAlgo === 'Q_LEARNING' && ['alpha', 'epsilon'].map(p => (
-                 <div key={p}>
+               {activeAlgo === 'Q_LEARNING' && ([
+                 { key: 'alpha', label: 'Alpha α', min: 0, max: 1, step: 0.05, format: (v: number) => v.toFixed(2) },
+                 { key: 'epsilon', label: 'Epsilon ε', min: 0, max: 1, step: 0.05, format: (v: number) => v.toFixed(2) },
+                 { key: 'epsilonMin', label: 'Epsilon Min', min: 0, max: 1, step: 0.01, format: (v: number) => v.toFixed(2) },
+                 { key: 'epsilonDecay', label: 'Epsilon Decay', min: 0.9, max: 1, step: 0.001, format: (v: number) => v.toFixed(3) }
+               ] as Array<{ key: keyof SimulationParams; label: string; min: number; max: number; step: number; format: (v: number) => string }>).map(p => (
+                 <div key={p.key}>
                    <div className={`flex justify-between text-xs font-bold text-slate-600 mb-2 ${!isSidebarOpen && 'hidden'}`}>
-                     <span>{p === 'alpha' ? 'Alpha α' : 'Epsilon ε'}</span>
-                     <span className="text-indigo-600 font-mono">{params[p as keyof SimulationParams]}</span>
+                     <span>{p.label}</span>
+                     <span className="text-indigo-600 font-mono">{p.format(params[p.key] as number)}</span>
                    </div>
                    <input 
                      type="range" 
-                     min="0" max="1" step="0.05" 
-                     value={params[p as keyof SimulationParams]} 
-                     onChange={e => setParams(prev => ({ ...prev, [p]: parseFloat(e.target.value) }))} 
+                     min={p.min} max={p.max} step={p.step} 
+                     value={params[p.key] as number} 
+                     onChange={e => setParams(prev => ({ ...prev, [p.key]: parseFloat(e.target.value) }))} 
                      className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-600" 
                    />
                  </div>

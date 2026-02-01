@@ -35,6 +35,8 @@ export interface SimulationParams {
   // Q-Learning specific
   alpha: number;        // Learning rate
   epsilon: number;      // Exploration rate
+  epsilonMin: number;   // Lower bound for exploration rate
+  epsilonDecay: number; // Multiplicative decay applied per step
 }
 
 export interface HistoryPoint {
