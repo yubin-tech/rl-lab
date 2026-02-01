@@ -1,0 +1,5 @@
+{
+  "name": "RL-Lab",
+  "description": "An interactive Gridworld simulation to visualize and master the Bellman Equation and Value Iteration in Reinforcement Learning.",
+  "requestFramePermissions": []
+}
