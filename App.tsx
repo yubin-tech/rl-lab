@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Play, RotateCcw, SkipForward, Pause, Settings2, HelpCircle, Layers, LayoutGrid, Calculator, Menu, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, RotateCcw, SkipForward, Pause, HelpCircle, Layers, LayoutGrid, Calculator, Menu, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Cell, Action, CellType, SimulationParams, HistoryPoint, AlgorithmType } from './types';
 import { DEFAULT_ROWS, DEFAULT_COLS, ACTION_VECTORS } from './constants';
 import GridCell from './components/GridCell';
